@@ -1,6 +1,6 @@
 ## Introduction
 
-This is a mostly chronological writing of my learing process of SMACC2. It is only slightly redacted and hence by no means an ideal guideline to learning SMACC2, but I do think it can significantly accelerate the learning process for anyone new to SMACC2 / Boost Statechart.
+This is a mostly chronological writing of my learing process of [SMACC2](https://github.com/robosoft-ai/SMACC2). It is only slightly redacted and hence by no means an ideal guideline to learning SMACC2, and it is unfinished, as time constraints forced me to stop after digging through probably less than half of the code. Yet I decided to release this file, as I hink it can be valuable to anyone new to SMACC2 / Boost Statechart, and hopefully significantly accelerate their (initial) learning process.
 
 Feel free to correct me on topics that I might have misunderstood, or to elaborate on topics that might benefit from further clarification.
 </br>
@@ -21,7 +21,7 @@ The source code for the Boost Statechart tutorial examples can be found by [down
 
 ### Some concepts worth repeating for reference:
 
-– but seriously: **[read those tutorials first!](https://www.boost.org/doc/libs/1_81_0/libs/statechart/doc/tutorial.html)**
+But seriously: **[read those tutorials first!](https://www.boost.org/doc/libs/1_81_0/libs/statechart/doc/tutorial.html)**
 </br>
 </br>
 - Boost Statechart extensively uses **`structs`**. There is no functional difference between a `struct` and a `class`. Structs can also have constructors, destructors, public and private member variables or functions, etc. And structs can also inherit from other classes or structs. The only functional difference between a struct and a class is the following: if no access specifiers (public/private/protected) are specified, classes will default to `private`, whereas structs will default to `public`. For instance:
@@ -37,7 +37,7 @@ The source code for the Boost Statechart tutorial examples can be found by [down
   ```c++
   struct Mystruct : TemplateBaseClass< MyStruct >
   ```
-  This is curious indeed!</br>
+  This is curious indeed! ;-)/br>
   Wrt. the use of SMACC2 / Boost Statechart, there is no need to further study this design pattern; just accept it for what it is and get used to the notation.
 
   </br>
@@ -106,7 +106,7 @@ The source code for the Boost Statechart tutorial examples can be found by [down
   
   The state `Running` is derived from `sc::simple_state` and from the interface class `IElapsedTime`. This interface class defines common methods to be implemented by each state.</br>
   </br>
-  Similarly:
+  Similarly (though not necessarily exactly for the same reason):
   - A `smacc2::SmaccState` inherits from `sc::simple_state` and from `smacc2::ISmaccState`.</br>
   -  A `smacc2::SmaccStateMachineBase` inherits from `sc::asynchronous_state_machine` and from `smacc2::ISmaccStateMachine`.
    </br>
@@ -125,9 +125,9 @@ Given that the SMACC2 `SmaccStateMachineBase` is an `sc::asynchronous_state_mach
 </br>
 </br>
 
-### What is the problem anyway?
+### What is the issue?
 
-A non-asynchronous state machine (`sc::state_machine`) is created and initiated, and then processes events, e.g.:
+A **non-asynchronous** state machine (`sc::state_machine`) is instantiated, initiated, and then processes events, e.g.:
 
 ```c++
 int main()
@@ -143,10 +143,13 @@ int main()
 
 Each `process_event()` call takes a certain amount of time. This could be very little (e.g. processing an event that is simply discarded), but could also be significant (e.g. a multitude of state instances that need to be destructed/constructed upon a state change).
 
-In above example, each `process_event()` is called consecutively, so it cannot happen that a `process_event()` call is made while a previous one is still running.
+In above example, each `process_event()` is called consecutively, so it is impossible that a `process_event()` call is made while a previous one is still running.
 
-In a multithreaded program however, with multiple sources of events, it would be possible that one thread's `process_event()` is preempted by another thread that also calls `process_event()`. This would obviously lead to erratic behavior.</br>
- (Note that this is irrespective of whether `process_events()` takes a long time or not, though obviously more likely in the former case.)
+In a multithreaded program however, with multiple sources of events, it could be possible that one thread's `process_event()` is preempted by another thread that also calls `process_event()`. This would obviously lead to erratic behavior.</br>
+(Note that this is in fact irrespective of whether `process_events()` takes a long time or not, though obviously more likely in the former case.)</br>
+ In other words: unless you'd implement your own solution, synchronous Boost Statechart state machines are not thread safe: it is not allowed to call `process_events()` from multiple threads.
+
+</br>
 
 As a side note: the Boost Statechart [tutorials](https://www.boost.org/doc/libs/1_81_0/libs/statechart/doc/tutorial.html) show a similar issue for the singlethreaded case, but this is not of particular relevance for now.
 
@@ -154,7 +157,7 @@ As a side note: the Boost Statechart [tutorials](https://www.boost.org/doc/libs/
 
 ### So... asynchronous state machines?
 
-The solution to above issue is the use of an asynchronous state machine. The processing of an asynchronous state machine is split into:
+The solution to above issue is to use an asynchronous state machine. The processing of an asynchronous state machine is split into:
 - A `scheduler`, which receives events and stores them into a queue, and 
 - A `processor`, which sequentially gets an event from the scheduler and processes it in the state machine.
 
@@ -196,6 +199,8 @@ For more examples of the use of asynchronous state machines, e.g. multiple proce
 </br>
 </br>
 
+Let's now look at the SMACC2 `sm_atomic` example.
+
 
 ## The sm_atomic example
 
@@ -213,7 +218,7 @@ int main(int argc, char ** argv)
 
 `SmAtomic` is the state machine class.
 
-`smacc2::run<T>()` is defined in [smacc_signal_detector.hpp](https://robosoft-ai.github.io/smacc2_doxygen/master/html/smacc__signal__detector_8hpp_source.html):
+`smacc2::run<T>()` is defined in [smacc_signal_detector.hpp](https://robosoft-ai.github.io/smacc2_doxygen/master/html/smacc__signal__detector_8hpp_source.html), see description below the code:
 
 ```c++
 template <typename StateMachineType>
@@ -302,9 +307,9 @@ We see that it polls *something* and spins the node:
 > - A `FifoScheduler` and `Processor` are created to run an asynchronous state machine.
 > - The state machine is created by `create_processor<>()`. The state machine constructor mainly
 >   - Creates a **ROS2 node**, and
->   - Initializes the SignalDetector,
+>   - Initializes the **SignalDetector**,
 > - The `FifoScheduler` runs in a **separate thread**,
-> - The SignalDetector polls *something* and spins the state machine node:
+> - The `SignalDetector` polls *something* and spins the state machine node:
 >   - At a configurable rate (default 20Hz),
 >   - In the context of the **main thread**. </br>
 > </br>
@@ -333,8 +338,10 @@ It does the following (see below for further clarification):
   - Call `executeUpdate(state_machine_node)` on each of the `ISmaccUpdatable`'s in `updatableStateElements_`,
 - Call `rclcpp::spin_some(nh)`.</br>
 
+</br>
+
 [ QUESTION:&emsp; *The mutex is not related to Boost Statechart, so what is holding the FifoScheduler (in the other thread) from processing a state change event while `pollOnce` is executed (by the main thread)?* ]</br>
---> It seems that this mutex is also locked in `SmaccState::exit()` which blocks the transition, however by then `specificNamedOnExit` and `notifyTransition` have been called?
+--> ANSWER: It seems that this mutex is also locked in `SmaccState::exit()` which blocks the transition. However: by then `specificNamedOnExit` and `notifyTransition` have been called?
 
 [ QUESTION:&emsp; _Why is `spin_some` called twice: both here in `pollOnce()` as well as in `pollingLoop()`?_ ]
 
@@ -388,7 +395,7 @@ In other words:
   - All components of those clients,</br>
 - If these are `ISmaccUpdatable`.
 
-[ QUESTION:&emsp;_Given that orthogonals and clients are persistent throughout the state machine lifetime, why is this vector rebuilt on each poll? Maybe the client's components are not persistent? What are client components anyway??_]
+[ QUESTION:&emsp;_Given that orthogonals and clients are persistent throughout the state machine lifetime, why is this vector rebuilt on each poll? Maybe the client's components are not persistent? What are client components anyway?_]
 
 
 </br>
@@ -429,10 +436,10 @@ From the implementation in [smacc_updatable.hpp](https://robosoft-ai.github.io/s
 - The `ISmaccUpdatable` imposes the implementation of an `update()` method in the derived class,
 - An `ISmaccUpdatable` optionally has a period (rclcpp::Duration),
 - The `update()` method is called:
-  - If no duration is set: each time when `execucuteUpdate(node)` is called,
+  - If no duration is set: each time when `execucuteUpdate(node)` is called (by the SignalDetector),
   - If a duration is set: when `execucuteUpdate(node)` is called AND the duration has passed since the previous `update()`.
 
-So an `ISmaccUpdatable` has its `update()` method called periodically, with period equal to, or a multiple of, the polling loop period.
+In other words: an `ISmaccUpdatable` has its `update()` method called periodically, with period equal to, or a multiple of, the SignalDetector polling loop period.
 
 </br>
 </br>
@@ -604,9 +611,12 @@ It's rather tough code to read, so I did not fully validate this, but I'm pretty
 </br>
 
 
-Now we're at it, that same file also implements `standardOnExit(state)`. Similarly, this one checks if the state implements `onExit()` and calls it accordingly. `standardOnExit(state)` --and hence the state's `onExit()`-- is called from the standard Boost Statechart `exit()` call of the state (implementation in [`Smacc2::SmaccState::exit()`](https://robosoft-ai.github.io/smacc2_doxygen/master/html/smacc__state__base_8hpp_source.html) )
+Now we're at it, that same file also implements `standardOnExit(state)`. Similarly, this one seems to check if the state implements `onExit()` and calls it accordingly. `standardOnExit(state)` --and hence the state's `onExit()`-- is called from the standard Boost Statechart `exit()` call of the state (implementation in [`Smacc2::SmaccState::exit()`](https://robosoft-ai.github.io/smacc2_doxygen/master/html/smacc__state__base_8hpp_source.html) )
 
-The implementation  of `notifyTransision()` is in [smacc_state_impl.hpp](https://robosoft-ai.github.io/smacc2_doxygen/master/html/smacc__state__impl_8hpp_source.html).
+</br>
+</br>
+
+The implementation  of `notifyTransision()` is in [smacc_state_impl.hpp](https://robosoft-ai.github.io/smacc2_doxygen/master/html/smacc__state__impl_8hpp_source.html).</br>
 It forwards the notification to `ISmaccState::notifyTransitionFromTransitionTypeInfo(TypeInfo::Ptr & transitionType)`. Reading through this it seems that:
 - A `smacc2::ISmaccState` has a `smacc2::introspection::SmaccStateInfo`,
 - A `SmaccStateInfo` has an `std::vector< SmaccTransitionInfo > transitions_`,
@@ -615,7 +625,7 @@ It forwards the notification to `ISmaccState::notifyTransitionFromTransitionType
 - If not, debug info is logged as RCLCPP_ERROR_STREAM.
 
 
-[ QUESTION:&emsp; in `ISmaccStateMachine::publishTransition()`: &emsp; `this->transitionLogHistory_.push_back(transitionLogEntry);` ---> This an evergrowing vector? There's no clear anywhere?]
+[ QUESTION:&emsp; *in `ISmaccStateMachine::publishTransition()`: &emsp; `this->transitionLogHistory_.push_back(transitionLogEntry);` ---> This an evergrowing vector? There's no clear anywhere?*]
 
 </br>
 
@@ -635,7 +645,7 @@ It forwards the notification to `ISmaccState::notifyTransitionFromTransitionType
 >
 > </br>
 > 
-> [ QUESTION:&emsp;*Does this imply that it is not intended to use `sc::custom_reaction< event >` with `sc::result react( const event & )` functions?* ]
+> [ QUESTION:&emsp;*Does this imply that it is not intended to use `sc::custom_reaction< event >` and corresponding `sc::result react( const event & )` functions?* ]
 >
 > </br>
 > 
@@ -656,21 +666,22 @@ template <typename TSource, typename TOrthogonal>
 struct EvTimer : sc::event<EvTimer<TSource, TOrthogonal>> {};
 ```
 
-[ QUESTION ]&emsp;Not clear why EvTimer is a template class, afaik it could also be the following (less confusing for first time users):
-```c++
-struct EvTimer : sc::event<EvTimer> {};
-```
+[ QUESTION &emsp;*Not clear why EvTimer is a template class, afaik it could also be the following (less confusing for first time users):&emsp; 
+`struct EvTimer : sc::event<EvTimer> {}; `*]</br>
+[ POSSIBLE ANSWER: *I think the template definition is used to define source- and orthogonal-specific events. I.e. one type of client can be added to multiple orthogonals and send client- and orthogonal-specific events (as long as the orthogonals are of a different type).*]
+
+</br>
 
 The timer client seems to:
 - Create a ROS2 timer in its `onInitialize()`,
 - Its timer callback runs either one time (`bool oneshot = true`) or periodically (`oneshot = false`, default),
 - The timer callback calls:
-  - `this->onTimerTick_()`
-    - if `onTimerTick_` has been set,
+  - If it has been set: `this->onTimerTick_()`
     - `onTimerTick_` is set by a call to `ClRosTimer::onTimerTick(void (T::*callback)(), T * object)`),
-  - `postTimerEvent_()`
+  - and `postTimerEvent_()`
     - `postTimerEvent_` is set in `ClRosTimer::onOrthogonalAllocation()`
-    - It resolves to `this->postEvent()` [QUESTION:&emsp;~~is this general or client-specific?~~ It seems to be client-specific, e.g. it could as well call `postEvent(event)` instead to pass on an instantiated event object]
+    - It resolves to `this->postEvent()`</br>
+    [QUESTION:&emsp;~~is this general or client-specific?~~ It seems to be client-specific, e.g. it could as well call `postEvent(event)` instead, if an instantiated event object should be passed on]
 
 </br>
 
@@ -684,7 +695,7 @@ void onInitialize() override { auto client = this->createClient<cl_ros_timer::Cl
 </br>
 
 The call to `this->postEvent()` needs further study: </br>
-It is the base class `ISmaccState::postEvent()`, which resolves to `statemachine->postEvent()`, implemented in [smacc_state_machine_impl.hpp](https://robosoft-ai.github.io/smacc2_doxygen/master/html/smacc__state__machine__impl_8hpp_source.html).
+It is the base class method `ISmaccState::postEvent()`, which resolves to `statemachine->postEvent()`, implemented in [smacc_state_machine_impl.hpp](https://robosoft-ai.github.io/smacc2_doxygen/master/html/smacc__state__machine__impl_8hpp_source.html).
 
 These state machine `postEvent()` methods take an `EventLifeTime` which defaults to `ABSOLUTE` :
 ```c++
@@ -831,7 +842,6 @@ Other relevant functions of the `ISmaccClient` base class:
 - void postEvent()
 - void postEvent(const EventType &ev)
 ```
-
 
 
 

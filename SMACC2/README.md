@@ -771,11 +771,7 @@ Let's look at `configure_orthogonal<>(Args)` first, see [smacc_state_base.hpp](h
 - It adds a new entry to ab std::map of pairs ( `state`, `std::vector<ClientBehaviorInfoEntry>` ) if no entry exists yet for this state, and
 - It adds the `ClientBehaviorInfoEntry` to the std::vector of the state.
 
-[ SUSPENSE! Who calls the factoryFunction? When?]</br>
-[ SPOILER: It's entryStateInternal()]
-
-[ SUSPENSE! Who calls staticConfigure? When?]</br>
-[ Dunno. ]
+[ _The factoryFunction is called by `entryStateInternal()`_ ]
 
 </br>
 
@@ -786,7 +782,7 @@ Even though it is not being called yet, let's have a look at `state->configure<T
 - It get's the orthogonal from the state machine,
 - It creates a shared_ptr to a new client behavior,
 - It adds it to the orthogonal,
-- It calls `onOrthogonalAllocation()` on the client behavior object.&emsp;Kabaam!
+- It calls `onOrthogonalAllocation()` on the client behavior object.
 
 
 </br></br>

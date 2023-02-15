@@ -1,10 +1,11 @@
 ## Introduction
 
-This is a mostly chronological writing of my learing process of [SMACC2](https://github.com/robosoft-ai/SMACC2). It is only slightly redacted and hence by no means an ideal guideline to learning SMACC2, and it is unfinished, as time constraints forced me to stop after digging through probably less than half of the code. Yet I decided to release this file, as I hink it can be valuable to anyone new to SMACC2 / Boost Statechart, and hopefully significantly accelerate their (initial) learning process.
+This is a mostly chronological writing of my learing process of [SMACC2](https://github.com/robosoft-ai/SMACC2). It is only slightly redacted and hence by no means an ideal guideline to learning SMACC2, and it is **unfinished**, as time constraints forced me to stop and focus on other priorities. Yet I decided to release this file, as I think it can be valuable to anyone new to SMACC2 / Boost Statechart, and hopefully significantly accelerate their (initial) learning process. The text is structured in sections that describe a part of the code, each followed by 'Intermediate conclusions' that give a concise resume of that part of the code.
 
 Feel free to correct me on topics that I might have misunderstood, or to elaborate on topics that might benefit from further clarification.
 </br>
 </br>
+
 
 ## Boost Statechart
 

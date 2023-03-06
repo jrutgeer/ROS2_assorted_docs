@@ -1,6 +1,9 @@
 # Study of rclcpp logging with focus on realtime-compliance
 
-## Disclaimer
+## Introduction
+
+This study started with a simple question: "Is it ok to include log macro calls in realtime code, so you can log during debugging but disable it through the loglevel during normal operation?". The result is an almost complete walktrough through the code, describing all aspects of the current ROS 2 logging subsystems in rcl, rcutils and rclcpp.</br>
+I hope it can be useful to many, and maybe even incite some to also start lookin into the ROS 2 core implementation. I'm looking forward to reading your notes!
 
 With respect to the realtime-compliance of the code, I mainly looked for:
 - Heap allocations, and
@@ -18,14 +21,14 @@ If there are inaccuracies or incorrect statements in below description, please c
 
 Logging is _obviously_ not realtime-compliant.</br>
 It is possible however to use log macro calls in your code, and disable them at runtime through the loglevel.</br>
-This could be usefull e.g. for debug output while testing, without compromising realtime behavior during normal operation.
+This could be useful e.g. for debug output while testing, without compromising realtime behavior during normal operation.
 
 
 </br>
 
 However, even when disabled some function calls are still made, so <span style="color:red">**following rules are necessary conditions**</span> for realtime-compliance:
 
-- Don't use the streaming macros (e.g. RCLCPP_DEBUG_STREAM), since these allocate using plain `malloc`, **before** the loglevel is checked and logging is discarded.</br>
+- Don't use the streaming macros (e.g. RCLCPP_DEBUG_STREAM), since these allocate using plain `malloc`, **before** the loglevel is evaluated and logging is discarded.</br>
 
 - Call the logger macros with:
   - `node::get_logger()`,
@@ -40,7 +43,7 @@ However, even when disabled some function calls are still made, so <span style="
 - Each log macro call eventually calls `rcutils_logging_get_logger_effective_level(name)` which ([on some occasions](#ancestorallocation)) allocates memory. Hence:
   - rclcpp should be initialized with a realtime-compliant memory allocator,
   - This seems currently not possible due to [this](https://github.com/ros2/rcl/issues/1036) and [this](https://github.com/ros2/rcl/issues/1037),
-  - As a workaround: don´t use child loggers (i.e. dot separated names such as "parent_logger.child_logger") for log macros in a realtime part of your code.
+  - As a workaround: don´t use child loggers (i.e. with dot separated names such as "parent_logger.child_logger", or by call of `Logger::get_child("name")`) for log macros in a realtime part of your code.
 
 </br>
 
@@ -78,7 +81,7 @@ But this will:
   
 </br>
 
-Though note that using the full name is not recommended anyway, as the node name could be remapped at launch.
+Note though that using the full name of children for node loggers is not recommended anyway, as the node name could be remapped at launch.
 
 </br>
 </br>
@@ -129,12 +132,12 @@ Re. realtime compliance:
 
 Below description covers the 'DEBUG' loglevel macros, but it is obviously identical for the other loglevels (INFO / WARNING / etc).
 </br>
-The rclcpp logger macros are in `logging.hpp`, which is generated at compile time from `rclcpp/resource/logging.hpp.em` (i.e. logging.hpp is in the build and install folder, not in the ROS 2 source).
+The rclcpp logger macros are in `logging.hpp`, which is generated at compile time from `rclcpp/resource/logging.hpp.em` (i.e. `logging.hpp` is in the build and install folder, not in the ROS 2 source).
 
 </br>
 
 RCLCPP_DEBUG / RCLCPP_DEBUG_EXPRESSION / RCLCPP_DEBUG_FUNCTION / RCLCPP_DEBUG_SKIPFIRST
-- Have a compile-time assert that 'logger' is an `rclcpp::Logger`
+- These macros have a compile-time assert that 'logger' is an `rclcpp::Logger`
 - Followed by call of an **rcutils** macro, respectively: 
     - `RCUTILS_LOG_DEBUG_NAMED`
     - `RCUTILS_LOG_DEBUG_EXPRESSION_NAMED`
@@ -145,7 +148,7 @@ RCLCPP_DEBUG / RCLCPP_DEBUG_EXPRESSION / RCLCPP_DEBUG_FUNCTION / RCLCPP_DEBUG_SK
 
 RCLCPP_DEBUG_THROTTLE / RCLCPP_DEBUG_SKIPFIRST_THROTTLE
 - Similar to above, but also define a lambda function to return the current time
-  - <span style="color:red">**Assumption: stack allocated --> realtime-compliant**</span>
+  - <span style="color:red">**Assumption: stack allocated --> realtime-compliant**, but I did not check the time functions.</span>
 - Respective rcutils macro calls:
   - `RCUTILS_LOG_DEBUG_THROTTLE_NAMED`
   - `RCUTILS_LOG_DEBUG_SKIPFIRST_THROTTLE_NAMED`
@@ -177,7 +180,7 @@ All rcutils logging macros start with a call to `RCUTILS_LOGGING_AUTOINIT`, whic
 
  ### RCUTILS_LOGGING_AUTOINIT
 
-- [RCUTILS_LOGGING_AUTOINIT](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/include/rcutils/logging.h#L560) first checks if already initialized, and, if not:
+- [RCUTILS_LOGGING_AUTOINIT](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/include/rcutils/logging.h#L560) first checks if logging is already initialized, and, if not:
 - Calls [`rcutils_logging_initialize(void)`](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/src/logging.c#L129-L132) which calls [`rcutils_logging_initialize_with_allocator(rcutils_allocator_t)`](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/src/logging.c#L513) with the default allocator
   - Default allocator uses standard `malloc/free/realloc/calloc` (stdlib.h)
   - Question: Is there a way to pass a different allocator?</br>
@@ -223,10 +226,11 @@ All rcutils logging macros start with a call to `RCUTILS_LOGGING_AUTOINIT`, whic
     - On each logging call:
       - It is checked if the map contains a hash corresponding to that log call name, and
       - If so: the corresponding severity is read from the map,
-      - If not: the default severity is used.
+      - If not: the default severity is used,
+      - If the severity of the macro call >= the hashmap severity, the message is logged.
   - First, an empty hashmap is requested,
   - Then it is initialized with following arguments:
-    - Initial size is 2 (has to be power of 2 due to some optimization on lookup),
+    - Initial size is 2 (comments state that this has to be power of 2 due to some optimization on lookup),
     - Key size: sizeof(const char*),
     - Data size: sizeof(int),
     - Hash function,
@@ -250,7 +254,7 @@ All rcutils logging macros start with a call to `RCUTILS_LOGGING_AUTOINIT`, whic
     - [This](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/src/logging.c#L464) then jumps back to the start of the while loop (I think, but it seems not necessary??), 
       - `rcutils_find` is called again for start delimiter and returns zero, so the if clause is skipped
     - We arrive at [another call](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/src/logging.c#L472) to `rcutils_find`, this time for the end delimiter,
-      - [If no end delimiter is found](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/src/logging.c#L475-L483) in the remainder of the formatting string, add a handler to copy the remainder of this string,
+      - [If no end delimiter is found](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/src/logging.c#L475-L483) in the remainder of the formatting string (same logic with `SIZE_MAX`), add a handler to copy the remainder of this string,
       - [Else](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/src/logging.c#L485-L506):
         - Copy that part of the string into `token`,
         - Check if `token` actually is a token (`find_token_handler`)
@@ -404,13 +408,13 @@ Hence, the conditions and `rcutils_log_internal()` function are not called.
 - Calls `rcutils_logging_get_logger_effective_level` to get the 'effective  loglevel' for logger 'name',
 
 - Returns true if `severity >= effective_loglevel`. 
-  - `severity` is the severity of the macro call (e.g. DEBUG),
+  - `severity` is the severity of the macro call (e.g. RCLCPP_DEBUG),
   - `effective_loglevel` is the loglevel which was set for this logger name or its ancestors (see below), or the default loglevel if no loglevel was set.
 
 </br>
 </br>
 
-### rcutils_logging_get_logger_effective_level(name)
+### rcutils_logging_get_logger_effective_level(name)<a id="ancestorallocation"></a>
 
 Looks up 'name' in the hash map:
 - [If the hash map has no entries](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/src/logging.c#L866-L884): return `g_rcutils_logging_default_logger_level`
@@ -419,13 +423,13 @@ Looks up 'name' in the hash map:
   - If found:&emsp;returns the corresponding severity,
   - Else:&emsp;returns `g_rcutils_logging_default_logger_level`</br>
   </br>
-- The 'ancestor' hierarchy is signified by logger names being separated by dots:<a id="ancestorallocation"></a>
+- The 'ancestor' hierarchy is signified by logger names being separated by dots:
    - A logger named `x` is an ancestor of `x.y`,
    - Both `x` and `x.y` are ancestors of `x.y.z`, etc.</br>
    </br>
    
    <span style="color:red">**To search for ancestors, a copy of 'name' is made, allocated by g_rcutils_logging_allocator --> realtime-compliant allocator mandatory**</span></br>
-_Idea for possible code change to avoid this allocation: add extra search and hash function that takes a parameter 'up_to_nth_delimiter', so instead of hashing until the end of the string (\0), the hashing is done until the specified number of occurences of `RCUTILS_LOGGING_SEPARATOR_CHAR` (i.e. '.') are encountered._
+_Idea for possible code change to avoid this allocation: add extra search and hash function that takes a parameter 'up_to_nth_delimiter', so instead of hashing until the end of the string (\0), the hashing is done until the specified number of occurences of `RCUTILS_LOGGING_SEPARATOR_CHAR` (i.e. '.') are encountered. This way no copy has to be made._
 
 </br>
 </br>
@@ -435,11 +439,11 @@ _Idea for possible code change to avoid this allocation: add extra search and ha
 Above hashmap is populated by calls to `rcutils_logging_set_logger_level`.</br>
 Loglevels are typically specified through the command line arguments, which are processed in `rclcpp::init` (see [below](#rclcpp_init)).</br>
 
-It does the following:
-- [Check](https://github.com/ros2/rcutils/blob/1db1f16a49378f4693b74296449ee920ff53cffe/src/logging.c#L980) that the log level is in the range `[0, # loglevels]`,
+`rcutils_logging_set_logger_level` does the following:
+- [Check](https://github.com/ros2/rcutils/blob/1db1f16a49378f4693b74296449ee920ff53cffe/src/logging.c#L980) that the log level is in the range `[0, number of loglevels]`,
 - [Get](https://github.com/ros2/rcutils/blob/1db1f16a49378f4693b74296449ee920ff53cffe/src/logging.c#L985) the corresponding string,
 - [Check](https://github.com/ros2/rcutils/blob/1db1f16a49378f4693b74296449ee920ff53cffe/src/logging.c#L993) if an entry exist in the hashmap for that logger name,
-- If so: remove it, and iterate over the hash map to see if there are cached values for child loggers (i.e. not manually set) that also should be removed,
+- If so: remove it, and iterate over the hash map to see if there are cached values for child loggers (i.e. not manually set) that also should be removed. Cached values are an [optimization that currently is disabled](https://github.com/ros2/rcutils/blob/1db1f16a49378f4693b74296449ee920ff53cffe/src/logging.c#L946-L959).
 - Finally [add the new key](https://github.com/ros2/rcutils/blob/1db1f16a49378f4693b74296449ee920ff53cffe/src/logging.c#L1052-L1057) or change the [default loglevel](https://github.com/ros2/rcutils/blob/1db1f16a49378f4693b74296449ee920ff53cffe/src/logging.c#L1059-L1062).
 
 </br>
@@ -520,9 +524,8 @@ Then, `Context::init()` is called. It has several functional blocks:
   - It [locks](https://github.com/ros2/rclcpp/blob/1fd5a96561166ad2ad557bbc1a297cd652883cb2/rclcpp/src/rclcpp/context.cpp#L198) an `init_mutex_`, which is a `std::recursive_mutex`,
   - It [allocates](https://github.com/ros2/rclcpp/blob/1fd5a96561166ad2ad557bbc1a297cd652883cb2/rclcpp/src/rclcpp/context.cpp#L203) a new `rcl_context_t`,
   - It [calls](https://github.com/ros2/rclcpp/blob/1fd5a96561166ad2ad557bbc1a297cd652883cb2/rclcpp/src/rclcpp/context.cpp#L207) `rcl_get_zero_initialized_context()`,
-  - It [calls](https://github.com/ros2/rclcpp/blob/1fd5a96561166ad2ad557bbc1a297cd652883cb2/rclcpp/src/rclcpp/context.cpp#L208) `rcl_init` on the context, and
+  - It [calls](https://github.com/ros2/rclcpp/blob/1fd5a96561166ad2ad557bbc1a297cd652883cb2/rclcpp/src/rclcpp/context.cpp#L208) `rcl_init` on the context (description below), and
   - If all went well, it [stores](https://github.com/ros2/rclcpp/blob/1fd5a96561166ad2ad557bbc1a297cd652883cb2/rclcpp/src/rclcpp/context.cpp#L213) `context` and a corresponding destructor function `__delete_context()` into the `std::shared_ptr` called `rcl_context_`.
-   </br>
    </br>
 - [Initialize the logging](https://github.com/ros2/rclcpp/blob/1fd5a96561166ad2ad557bbc1a297cd652883cb2/rclcpp/src/rclcpp/context.cpp#L215-L234)&ensp;(can be disabled through the `InitOptions`):
   - [Locks](https://github.com/ros2/rclcpp/blob/1fd5a96561166ad2ad557bbc1a297cd652883cb2/rclcpp/src/rclcpp/context.cpp#L216-L217) the global logging mutex (shared_prt to static `std::recursive_mutex` )
@@ -532,18 +535,15 @@ Then, `Context::init()` is called. It has several functional blocks:
     - With the `rclcpp_logging_output_handler`
   - For a further description, see below.
   </br>
-  </br>
-
 - Then [it checks](https://github.com/ros2/rclcpp/blob/1fd5a96561166ad2ad557bbc1a297cd652883cb2/rclcpp/src/rclcpp/context.cpp#L239-L241) for unparsed arguments (there shouldn´t be any):
   - If there are: [catch the exception](https://github.com/ros2/rclcpp/blob/1fd5a96561166ad2ad557bbc1a297cd652883cb2/rclcpp/src/rclcpp/context.cpp#L247-L257), clean up (`rcl_shutdown` etc) and rethrow,
   </br>
-</br>
 - Finally [save the `initoptions`](https://github.com/ros2/rclcpp/blob/1fd5a96561166ad2ad557bbc1a297cd652883cb2/rclcpp/src/rclcpp/context.cpp#L243) and [add the context](https://github.com/ros2/rclcpp/blob/1fd5a96561166ad2ad557bbc1a297cd652883cb2/rclcpp/src/rclcpp/context.cpp#L245-L246) as a weak pointer to the global `WeakContextsWrapper`.
 
 </br>
 </br>
 
-Regarding above call of `rcl_init`:
+**Regarding above call of `rcl_init`:**
 - [It does some checks](https://github.com/ros2/rcl/blob/4eccc3cbe65f5b58981f22efaf612a65731cb2f0/rcl/src/rcl/init.c#L54-L69):
   - If `argc`and `argv` correspond (i.e. `argc` non-null `argv` values),
   - If the options and context are not null and the allocator is valid,
@@ -567,7 +567,7 @@ Regarding above call of `rcl_init`:
   - Do some [error checks](https://github.com/ros2/rcl/blob/4eccc3cbe65f5b58981f22efaf612a65731cb2f0/rcl/src/rcl/arguments.c#L254-L266)
   - [Allocate](https://github.com/ros2/rcl/blob/4eccc3cbe65f5b58981f22efaf612a65731cb2f0/rcl/src/rcl/arguments.c#L271) an `rcl_arguments_t`
     - It does not have `zero` in the name (`_rcl_allocate_initialized_arguments_impl`) this time, but it is also zero-initialized.
-    - [Here](https://github.com/ros2/rcl/blob/4eccc3cbe65f5b58981f22efaf612a65731cb2f0/rcl/src/rcl/arguments.c#L2055-L2070) is the list of members. Relevant for logging:
+    - [Here](https://github.com/ros2/rcl/blob/4eccc3cbe65f5b58981f22efaf612a65731cb2f0/rcl/src/rcl/arguments.c#L2055-L2070) is the complete list of members. Wrt logging, following ar relevant:
       - `args_impl->log_levels`
       - `args_impl->external_log_config_file`
       - `args_impl->log_stdout_disabled`
@@ -592,7 +592,7 @@ Regarding above call of `rcl_init`:
 </br>
 </br>
 
-After `rcl_init` the call to `rcl_logging_configure_with_output_handler` is made to initialize the logging:
+**After `rcl_init` the call to `rcl_logging_configure_with_output_handler` is made to initialize the logging:**
 
 
 - It starts with a [call to](https://github.com/ros2/rcl/blob/bc979c6f22d6af54ad473cd65cd81708a4da8a93/rcl/src/rcl/logging.c#L65) `RCUTILS_LOGGING_AUTOINIT`,
@@ -674,7 +674,7 @@ And `SET_OUTPUT_COLOR_WITH_COLOR(status, color, output_array)` does [the followi
   - Will not allocate as `output_array` is still empty and its capacity (1024 - 1) is larger than the color string that is copied into it.
 </br>
 </br>
-</br>
+
 - If all above went ok, `args` is cloned into a new `va_list` and passed on to `rcutils_char_array_vsprintf`, see [this code](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/src/logging.c#L1313-L1322)</br>
 <span style="color:red">**Does va_copy allocate? It's a copy?**</span>
 
@@ -784,8 +784,7 @@ Log messages from log macro calls with a non-node logger (i.e. a "named logger",
 The `rcl_logging_rosout_output_handler` has a similar functionality as the console output handler:
 
 - Get node/publisher info from the hashmap for that logger name - [code](https://github.com/ros2/rcl/blob/d15594effa63065a19a9f69960ea80f5ac5be8bd/rcl/src/rcl/logging_rosout.c#L340)
-  - The `if` clause spans the whole output handler function body,
-  - So if no hash is found (i.e. for a named logger) it just returns. 
+  - The `if` clause spans the whole output handler function body, so if no hash is found (i.e. for a named logger) it just returns. 
   </br></br>
 - Initialize an empty message buffer and call `rcutils_char_array_vsprintf` - [code](https://github.com/ros2/rcl/blob/d15594effa63065a19a9f69960ea80f5ac5be8bd/rcl/src/rcl/logging_rosout.c#L342-L356)
   - For the description of `rcutils_char_array_vsprintf`, see [above description](#rcutils_vspintf) of the console output handler.
@@ -793,7 +792,7 @@ The `rcl_logging_rosout_output_handler` has a similar functionality as the conso
 - Then it [creates](https://github.com/ros2/rcl/blob/d15594effa63065a19a9f69960ea80f5ac5be8bd/rcl/src/rcl/logging_rosout.c#L363) a message by calling `rcl_interfaces__msg__Log__create()`.</br>
 Afaik, the code implementing this function is generated upon build time from the [Log.msg interface](https://github.com/ros2/rcl_interfaces/blob/rolling/rcl_interfaces/msg/Log.msg), yielding following source file:</br>
 &emsp;&emsp;`build/rcl_interfaces/rosidl_generator_c/rcl_interfaces/msg/detail/log__functions.c`</br>
-which allocates using the default allocator and initializes the message:
+which allocates using the **default allocator** and initializes the message:
 ```c
 rcl_interfaces__msg__Log *
 rcl_interfaces__msg__Log__create()

@@ -83,7 +83,7 @@ Though note that using the full name is not recommended anyway, as the node name
 </br>
 </br>
 
-The rest of this document gives a detailed overview of the code path an logic wrt. logging from rclcpp / rcutils / rcl.
+The rest of this document gives a detailed overview of the code path and logic wrt. logging from rclcpp / rcutils / rcl.
 
 </br>
 </br>
@@ -104,7 +104,7 @@ The [rclcpp::Logger](https://github.com/ros2/rclcpp/blob/b1e834a8dfb0e2058fbf0e3
   - This sets the loglevel into a hash table (contains logger name hash and corresponding loglevel value, for lookup on each log call). More on this below.
 - It has some other functions, such as:
   - [`get_name()`](https://github.com/ros2/rclcpp/blob/b1e834a8dfb0e2058fbf0e3adcc06cd8eda86243/rclcpp/include/rclcpp/logger.hpp#L140): returns the name,
-  - [`get_child(child_name)`](https://github.com/ros2/rclcpp/blob/b1e834a8dfb0e2058fbf0e3adcc06cd8eda86243/rclcpp/src/rclcpp/logger.cpp#L71): returns a logger instance with name "logger_name.child_name" and configures the rosout logging system for publishing output to /rosout.</br>
+  - [`get_child(child_name)`](https://github.com/ros2/rclcpp/blob/b1e834a8dfb0e2058fbf0e3adcc06cd8eda86243/rclcpp/src/rclcpp/logger.cpp#L71): returns a Logger instance with name "logger_name.child_name" and configures the rosout logging system for publishing output to /rosout.</br>
 
 </br>
 
@@ -204,17 +204,19 @@ All rcutils logging macros start with a call to `RCUTILS_LOGGING_AUTOINIT`, whic
     - Empty = default of the stream,
     - 0 = force unbuffered,
     - 1 = force line buffered.
-  - Correspondingly a call to `setvbuf` to configure the buffering - [code](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/src/logging.c#L580)</br>
-  </br>
+  - Correspondingly a call to `setvbuf` to configure the buffering - [code](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/src/logging.c#L580)
+  
   - `RCUTILS_COLORIZED_OUTPUT` - [code](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/src/logging.c#L593-L612)
     - Empty = auto,
     - 0 = force disable, 
     - 1 = force enable.
+    
   - `RCUTILS_CONSOLE_OUTPUT_FORMAT`: custom output format string - [code](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/src/logging.c#L614-L633)
     - Output format string is copied to `g_rcutils_logging_output_format_string` but truncated to MAX_OUTPUT_FORMAT_LEN,
     - If the environment variable was not set or could not be read, the default is used: `"[{severity}] [{time}] [{name}]: {message}"`
+
 </br>
-</br>
+
 - `g_rcutils_logging_severities_map` is initialized ([code](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/src/logging.c#L635-L646)). This is a static `rcutils_hash_map_t`.
   - This maps logger names to loger severities.
     - Logger names are stored as hashes instead of strings as this is more efficient.
@@ -255,10 +257,10 @@ All rcutils logging macros start with a call to `RCUTILS_LOGGING_AUTOINIT`, whic
           - If so: add the corresponding handler,
           - If not: add the `copy_from_orig` handler
 </br>
-</br>
+
 - And finally, `g_rcutils_logging_severities_map_valid` and `g_rcutils_logging_initialized` are set to `true`.</br>
 
-  This concludes `RCUTILS_LOGGING_AUTOINIT`.</br>
+This concludes `RCUTILS_LOGGING_AUTOINIT`.</br>
 
 </br>
 </br>

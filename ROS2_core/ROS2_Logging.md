@@ -3,7 +3,7 @@
 ## Introduction
 
 This study started with a simple question: "Is it ok to include log macro calls in realtime code, so you can log during debugging but disable it through the loglevel during normal operation?". The result is an almost complete walktrough through the code, describing all aspects of the current ROS 2 logging subsystems in rcl, rcutils and rclcpp.</br>
-I hope it can be useful to many, and maybe even incite some to also start lookin into the ROS 2 core implementation. I'm looking forward to reading your notes!
+I hope it can be useful to many, and maybe even incite some to also start looking into the ROS 2 core implementation. I'm looking forward to reading your notes!
 
 With respect to the realtime-compliance of the code, I mainly looked for:
 - Heap allocations, and
@@ -11,7 +11,7 @@ With respect to the realtime-compliance of the code, I mainly looked for:
 
 Any other things that might be relevant, please let me know!
 
-Furthermore, some conclusions are based on assumptions, which obviously I think are correct but which I did not formally check (e.g. the assumption that lambda functions are in stack memory and hence don´t allocate, unless of course if there would be an actual allocation inside the lambda function).</br>
+Furthermore, some conclusions are based on assumptions, which obviously I think are correct but which I did not formally check (e.g. the assumption that lambda functions are in stack memory (or some other preallocated region) and hence don't allocate, unless of course if there would be an actual allocation inside the lambda function).</br>
 </br>
 If there are inaccuracies or incorrect statements in below description, please correct me!
 
@@ -42,8 +42,8 @@ However, even when disabled some function calls are still made, so <span style="
 
 - Each log macro call eventually calls `rcutils_logging_get_logger_effective_level(name)` which ([on some occasions](#ancestorallocation)) allocates memory. Hence:
   - rclcpp should be initialized with a realtime-compliant memory allocator,
-  - This seems currently not possible due to [this](https://github.com/ros2/rcl/issues/1036) and [this](https://github.com/ros2/rcl/issues/1037),
-  - As a workaround: don´t use child loggers (i.e. with dot separated names such as "parent_logger.child_logger", or by call of `Logger::get_child("name")`) for log macros in a realtime part of your code.
+  - **This seems currently not possible due to [this](https://github.com/ros2/rcl/issues/1036) and [this](https://github.com/ros2/rcl/issues/1037),**
+  - As a workaround: don't use child loggers (i.e. with dot separated names such as "parent_logger.child_logger", or by call of `Logger::get_child("name")`) for log macros in a realtime part of your code.
 
 </br>
 
@@ -81,7 +81,7 @@ But this will:
   
 </br>
 
-Note though that using the full name of children for node loggers is not recommended anyway, as the node name could be remapped at launch.
+Note though, that using the full name of children for node loggers is not recommended anyway, as the node name could be remapped at launch.
 
 </br>
 </br>
@@ -98,7 +98,7 @@ The rest of this document gives a detailed overview of the code path and logic w
 
 Function calls such as `this->get_logger()` or `rclcpp::get_logger("logger_name")` are generally being described as "giving you _the node's logger_" or "giving you _the named logger_". Because of this, one would expect that these instantiations of the logger class perform the actual logging.
 
-This is however not the case: rclcpp "loggers" don´t do any logging: logging is done solely through the macro calls, that eventually resolve to rcutils function calls.
+This is however not the case: rclcpp "loggers" don't do any logging: logging is done solely through the macro calls, that eventually resolve to rcutils function calls.
 
 
 The [rclcpp::Logger](https://github.com/ros2/rclcpp/blob/b1e834a8dfb0e2058fbf0e3adcc06cd8eda86243/rclcpp/include/rclcpp/logger.hpp#L51) itself has little functionality:
@@ -122,7 +122,7 @@ Re. realtime compliance:
   - Given a Logger holds its name as an `std::shared_ptr<const std::string>`, which upon copy by the copy constructor does not allocate new memory for the string, I assume this is ok.
 - Conclusion:
   - Calling the logger macros with `rclcpp::get_logger("some_name")` is <span style="color:red">**not realtime-compliant**</span>
-  - Calling the logger macros with `this->get_logger()` <span style="color:red">**is realtime-compliant**</span> (wrt the logger object that is; for the inner working of the macros see below).
+  - Calling the logger macros with `this->get_logger()` <span style="color:red">**is realtime-compliant**</span> (wrt the logger object that is; for the inner workings of the macros see below).
 
 
 </br>
@@ -132,7 +132,7 @@ Re. realtime compliance:
 
 Below description covers the 'DEBUG' loglevel macros, but it is obviously identical for the other loglevels (INFO / WARNING / etc).
 </br>
-The rclcpp logger macros are in `logging.hpp`, which is generated at compile time from `rclcpp/resource/logging.hpp.em` (i.e. `logging.hpp` is in the build and install folder, not in the ROS 2 source).
+The rclcpp logger macros are in `logging.hpp`, which is generated at compile time from `rclcpp/resource/logging.hpp.em` (i.e. `logging.hpp` is in the build and install folder, but not in the ROS 2 source).
 
 </br>
 
@@ -185,7 +185,7 @@ All rcutils logging macros start with a call to `RCUTILS_LOGGING_AUTOINIT`, whic
   - Default allocator uses standard `malloc/free/realloc/calloc` (stdlib.h)
   - Question: Is there a way to pass a different allocator?</br>
     &emsp;&emsp;Is this done by manually calling `rcutils_logging_initialize_with_allocator(rcutils_allocator_t)` with a custom `rcutils_allocator_t` before using any logger macro or function?</br>
-    ---> TO BE CONFIRMED, see description [below](#rclcpp_init) wrt. initialisation from `rclcpp::init` and corresponding issues.
+    ---> ANSWER: it should be possible through the `InitOptions`, though there currently are certain issues, see description [below](#rclcpp_init) wrt. initialisation from `rclcpp::init`.
 
 </br>
 
@@ -197,7 +197,7 @@ All rcutils logging macros start with a call to `RCUTILS_LOGGING_AUTOINIT`, whic
 
 - `g_rcutils_logging_output_handler` is a **function pointer** to the current output handler ([code](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/src/logging.c#L525))
   - It is set here to `rcutils_logging_console_output_handler()`
-  - This is lateron changed by `rclcpp::init()` to an `rcl_logging_multiple_output_handler`, which calls this  `rcutils_logging_console_output_handler()` as well as the rosout and external log library handler.
+  - This is lateron changed by `rclcpp::init()` to an `rclcpp_logging_multiple_output_handler`, which calls this  `rcutils_logging_console_output_handler()` as well as the rosout and external log library handler.
   </br>
   </br> 
 - Environment variables:
@@ -440,7 +440,7 @@ Above hashmap is populated by calls to `rcutils_logging_set_logger_level`.</br>
 Loglevels are typically specified through the command line arguments, which are processed in `rclcpp::init` (see [below](#rclcpp_init)).</br>
 
 `rcutils_logging_set_logger_level` does the following:
-- [Check](https://github.com/ros2/rcutils/blob/1db1f16a49378f4693b74296449ee920ff53cffe/src/logging.c#L980) that the log level is in the range `[0, number of loglevels]`,
+- [Check](https://github.com/ros2/rcutils/blob/1db1f16a49378f4693b74296449ee920ff53cffe/src/logging.c#L978-L980) that the log level is in the range `[0, number of loglevels]`. This should be "<" [PR #414](https://github.com/ros2/rcutils/pull/414),
 - [Get](https://github.com/ros2/rcutils/blob/1db1f16a49378f4693b74296449ee920ff53cffe/src/logging.c#L985) the corresponding string,
 - [Check](https://github.com/ros2/rcutils/blob/1db1f16a49378f4693b74296449ee920ff53cffe/src/logging.c#L993) if an entry exist in the hashmap for that logger name,
 - If so: remove it, and iterate over the hash map to see if there are cached values for child loggers (i.e. not manually set) that also should be removed. Cached values are an [optimization that currently is disabled](https://github.com/ros2/rcutils/blob/1db1f16a49378f4693b74296449ee920ff53cffe/src/logging.c#L946-L959).
@@ -452,11 +452,10 @@ Loglevels are typically specified through the command line arguments, which are 
 
 ### `rcutils_log_internal(location, severity, name, format, ... )`
 
-For realtime execution, the logging macros are disabled by setting the loglevels so that `rcutils_logging_logger_is_enabled_for(name, severity)` returns `false`.</br>
-Hence, the conditions and `rcutils_log_internal()` function are not called.</br>
+For realtime execution, the logging macros are disabled by setting the loglevels so that `rcutils_logging_logger_is_enabled_for(name, severity)` returns `false`. Hence, the conditions and `rcutils_log_internal()` function are not called.</br>
+However, realtime compliance of `rcutils_log_internal(location, severity, name, format, ... )` could still be relevant if somebody (yes, that's you!) decides to write a realtime-compliant output handler (e.g. a non-locking buffered one? So the realtime calls never block, and a non-realtime thread reads from the buffer and does the actual logging output.).
 
-
-But otherwise `rcutils_log_internal(location, severity, name, format, ... )` [is called](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/src/logging.c#L1113-L1121).
+Anyway, `rcutils_log_internal(location, severity, name, format, ... )` [is called](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/src/logging.c#L1113-L1121).
 
   - The `va_list`, `va_start` and `va_end` calls deal with converting the "`...`" part of the function call into a variable named "`args`" that can be passed on to the call of `vrcutils_log_internal`.</br>
   <span style="color:red">**Does va_start allocate?** How does it convert "..." into args?</span>
@@ -535,7 +534,7 @@ Then, `Context::init()` is called. It has several functional blocks:
     - With the `rclcpp_logging_output_handler`
   - For a further description, see below.
   </br>
-- Then [it checks](https://github.com/ros2/rclcpp/blob/1fd5a96561166ad2ad557bbc1a297cd652883cb2/rclcpp/src/rclcpp/context.cpp#L239-L241) for unparsed arguments (there shouldn´t be any):
+- Then [it checks](https://github.com/ros2/rclcpp/blob/1fd5a96561166ad2ad557bbc1a297cd652883cb2/rclcpp/src/rclcpp/context.cpp#L239-L241) for unparsed arguments (there shouldn't be any):
   - If there are: [catch the exception](https://github.com/ros2/rclcpp/blob/1fd5a96561166ad2ad557bbc1a297cd652883cb2/rclcpp/src/rclcpp/context.cpp#L247-L257), clean up (`rcl_shutdown` etc) and rethrow,
   </br>
 - Finally [save the `initoptions`](https://github.com/ros2/rclcpp/blob/1fd5a96561166ad2ad557bbc1a297cd652883cb2/rclcpp/src/rclcpp/context.cpp#L243) and [add the context](https://github.com/ros2/rclcpp/blob/1fd5a96561166ad2ad557bbc1a297cd652883cb2/rclcpp/src/rclcpp/context.cpp#L245-L246) as a weak pointer to the global `WeakContextsWrapper`.
@@ -670,7 +669,7 @@ This calls [SET_COLOR_WITH_SEVERITY](https://github.com/ros2/rcutils/blob/61018b
 
 And `SET_OUTPUT_COLOR_WITH_COLOR(status, color, output_array)` does [the following](https://github.com/ros2/rcutils/blob/61018b2f88e55ac81edda4a45a02634493c999ed/src/logging.c#L1230-L1240):
 - Calls `rcutils_char_array_strncat`
-  - This concatenates the color string to `output_array`,
+  - This appends the color string to `output_array`,
   - Will not allocate as `output_array` is still empty and its capacity (1024 - 1) is larger than the color string that is copied into it.
 </br>
 </br>
@@ -879,7 +878,7 @@ Note that [this anwer](https://discourse.ros.org/t/ros2-logging/6469/36) to abov
 
 `rcl_logging_external_initialize`
 - This first locks a mutex
-  - It is strange that this implementation uses a mutex at this level, whereas the others don´t.
+  - It is strange that this implementation uses a mutex at this level, whereas the others don't.
   - In any case, in the context of rclcpp logging, initialization calls are serialized anyway by the rclcpp mutexes, so an extra mutex is not necessary.
 
 </br>

@@ -1,4 +1,4 @@
-# Study of rclcpp logging with focus on realtime-compliance
+# Study of ROS 2 logging with focus on realtime-compliance
 
 ## Introduction
 

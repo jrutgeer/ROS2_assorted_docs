@@ -440,7 +440,7 @@ Above hashmap is populated by calls to `rcutils_logging_set_logger_level`.</br>
 Loglevels are typically specified through the command line arguments, which are processed in `rclcpp::init` (see [below](#rclcpp_init)).</br>
 
 `rcutils_logging_set_logger_level` does the following:
-- [Check](https://github.com/ros2/rcutils/blob/1db1f16a49378f4693b74296449ee920ff53cffe/src/logging.c#L978-L980) that the log level is in the range `[0, number of loglevels]`. This should be "<" [PR #414](https://github.com/ros2/rcutils/pull/414),
+- [Check](https://github.com/ros2/rcutils/blob/1db1f16a49378f4693b74296449ee920ff53cffe/src/logging.c#L978-L980) that the log level is in the range `[0, number of loglevels - 1]`.
 - [Get](https://github.com/ros2/rcutils/blob/1db1f16a49378f4693b74296449ee920ff53cffe/src/logging.c#L985) the corresponding string,
 - [Check](https://github.com/ros2/rcutils/blob/1db1f16a49378f4693b74296449ee920ff53cffe/src/logging.c#L993) if an entry exist in the hashmap for that logger name,
 - If so: remove it, and iterate over the hash map to see if there are cached values for child loggers (i.e. not manually set) that also should be removed. Cached values are an [optimization that currently is disabled](https://github.com/ros2/rcutils/blob/1db1f16a49378f4693b74296449ee920ff53cffe/src/logging.c#L946-L959).
